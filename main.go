@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
 type Student struct {
@@ -20,8 +22,17 @@ type Student struct {
 var db *sql.DB
 
 func connectDB() {
-	var err error
-	db, err = sql.Open("mysql", "root:Alphacamero@7@tcp(127.0.0.1:3306)/studentdb")
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("No env file found")
+	}
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+	dsn := dbUser + ":" + dbPassword + "@tcp(" + dbHost + ":" + dbPort + ")/" + dbName
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,20 +40,22 @@ func connectDB() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	log.Println("Connected to database successfully")
 }
 
-// Get All Students function
-func getStudents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	rows, err := db.Query("SELECT * FROM students")
+func getStudentsAll(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, name, age, grade FROM students")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	defer rows.Close()
+
 	var students []Student
 	for rows.Next() {
 		var s Student
-		if err := rows.Scan(&s.ID, &s.Name, &s.Age, &s.Grade); err != nil {
+		err := rows.Scan(&s.ID, &s.Name, &s.Age, &s.Grade)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -50,7 +63,6 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(students)
 }
-
 func getStudentsId(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	urlpara := mux.Vars(r)
@@ -110,13 +122,23 @@ func deleteStudent(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	connectDB()
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Warning: No .env file found")
+	}
+
+	port := os.Getenv("APP_PORT")
+	if port == "" {
+		port = "8080"
+	}
 	r := mux.NewRouter()
-	r.HandleFunc("/students", getStudents).Methods("GET")
+	r.HandleFunc("/students", getStudentsAll).Methods("GET")
 	r.HandleFunc("/students/{id}", getStudentsId).Methods("GET")
 	r.HandleFunc("/students", createStudent).Methods("POST")
 	r.HandleFunc("/students/{id}", updateStudent).Methods("PUT")
 	r.HandleFunc("/students/{id}", deleteStudent).Methods("DELETE")
 
-	log.Println("Server started on :8080")
-	http.ListenAndServe(":8080", r)
+	log.Println("Server started on port:", port)
+	http.ListenAndServe(":"+port, r)
+
 }
